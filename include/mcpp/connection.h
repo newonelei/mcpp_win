@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <winsock2.h>
 
 #define FAIL_RESPONSE "Fail"
 
@@ -14,13 +15,16 @@
 namespace mcpp {
 class SocketConnection {
   private:
-    int socketHandle;
+    SOCKET socketHandle;
     std::string lastSent;
 
     static std::string resolveHostname(const std::string& hostname);
 
   public:
     SocketConnection(const std::string& address_str, uint16_t port);
+	~SocketConnection();
+
+	void Disconnect() const;
 
     void send(const std::string& dataString);
 

@@ -1,9 +1,10 @@
 #include "../include/mcpp/connection.h"
 
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+//#include <netdb.h>
+//#include <sys/socket.h>
+//#include <unistd.h>
 
 #include <sstream>
 #include <stdexcept>
@@ -11,11 +12,20 @@
 namespace mcpp {
 SocketConnection::SocketConnection(const std::string& address_str,
                                    uint16_t port) {
+	WSADATA wsaData;
+	int result;
+	// Initialize Winsock
+	result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (result != 0) {
+		std::cerr << "WSAStartup failed: " << result << std::endl;
+	}
+
     std::string ipAddress = resolveHostname(address_str);
 
     // Using std libs only to avoid dependency on socket lib
     socketHandle = socket(AF_INET, SOCK_STREAM, 0);
     if (socketHandle == -1) {
+		WSACleanup();
         throw std::runtime_error("Failed to create socket.");
     }
 
@@ -23,15 +33,29 @@ SocketConnection::SocketConnection(const std::string& address_str,
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(port);
 
-    if (inet_pton(AF_INET, ipAddress.c_str(), &(serverAddress.sin_addr)) <= 0) {
+	result = inet_pton(AF_INET, ipAddress.c_str(), &(serverAddress.sin_addr));
+	if(result < 0){
+		WSACleanup();
         throw std::runtime_error("Invalid address.");
     }
 
     if (connect(socketHandle, (struct sockaddr*)&serverAddress,
                 sizeof(serverAddress)) < 0) {
+		Disconnect();
         throw std::runtime_error(
             "Failed to connect to the server. Check if the server is running.");
     }
+}
+
+SocketConnection::~SocketConnection()
+{
+	Disconnect();
+}
+
+void SocketConnection::Disconnect() const
+{
+	closesocket(socketHandle);
+	WSACleanup();
 }
 
 std::string SocketConnection::resolveHostname(const std::string& hostname) {
@@ -57,9 +81,10 @@ std::string SocketConnection::resolveHostname(const std::string& hostname) {
 
 void SocketConnection::send(const std::string& dataString) {
     lastSent = dataString;
-    ssize_t result =
-        write(socketHandle, dataString.c_str(), dataString.length());
+    int result =
+		::send(socketHandle, dataString.c_str(), dataString.length(), 0);
     if (result < 0) {
+		Disconnect();
         throw std::runtime_error("Failed to send data.");
     }
 }
@@ -68,10 +93,11 @@ std::string SocketConnection::recv() const {
     std::stringstream responseStream;
     char buffer[1024];
 
-    ssize_t bytesRead;
+    int bytesRead;
     do {
-        bytesRead = read(socketHandle, buffer, sizeof(buffer));
+        bytesRead = ::recv(socketHandle, buffer, sizeof(buffer), 0);
         if (bytesRead < 0) {
+			Disconnect();
             throw std::runtime_error("Failed to receive data.");
         }
 
